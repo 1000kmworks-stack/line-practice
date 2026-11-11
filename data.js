@@ -30,7 +30,7 @@ var DIRECTIONS = [
 //   pages: true なら、1回目は「新しいページ」で白紙を次々に切り替えて描ける
 //   directions: true なら向きの選択ボタンを出す
 //   guide: 画面に薄く出すお手本の種類
-//     dots(点・毎回ランダム) / perspective(水平線+パースの線・毎回ランダム) / cross(十字線だけ)
+//     dots(点・毎回ランダム) / perspective(水平線+消失点2つ+そこへ向かう線・毎回ランダム) / cross(十字線だけ)
 //     circleCross(円と十字線) / circleCross8(円と十字線+斜め線2本)
 //   link: 外部サイトへのリンク { url, label }
 var PRACTICES = [
@@ -56,7 +56,7 @@ var PRACTICES = [
     no: 4, group: "perspective", guide: "perspective",
     en: "Perspective block practice: Draw a block and then plot dots to find the center line",
     title: "奥行きのある箱を描いて、点を打って真ん中の線を見つける",
-    point: "水平線とパースの線(消失点は画面の外。向かう先を意識して)にそって、奥にいくほど小さくなる箱を描く。面の真ん中は、角から角へ×を引くと見つかるよ(奥行きがあると、見た目の真ん中とずれる)。"
+    point: "水平線の上の2つの点が消失点(2点透視)。うすい線は全部、どちらかの消失点に向かっている。この線にそって、奥にいくほど小さくなる箱を描く。縦の線はまっすぐ立てる。面の真ん中は、角から角へ×を引くと見つかるよ(奥行きがあると、見た目の真ん中とずれる)。"
   },
   {
     no: 5, group: "circle", guide: "cross",

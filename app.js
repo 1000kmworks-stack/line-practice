@@ -250,19 +250,21 @@
       return best;
     }
     if (kind === "perspective") {
-      // 水平線と、左右の消失点(画面の外)に向かうパースの線。消失点そのものは画面に出さない
+      // 2点透視。水平線の上に、左右の消失点(画面の中)を1つずつおく。
+      // 消失点から、上下に5本ずつ(合わせて10本ずつ)、うすい線をのばして、方眼のようにする。
       function angles() {
-        var out = [], sign = Math.random() < 0.5 ? 1 : -1;
-        for (var k = 0; k < 4; k++) {
-          out.push(sign * (5 + Math.random() * 25) * Math.PI / 180);
-          sign = -sign;   // 水平線の上と下に、交互に出す
-        }
+        var base = [7, 16, 27, 40, 56], out = [];
+        base.forEach(function (d) {
+          var j = (Math.random() - 0.5) * 4;   // 少しだけ角度をばらつかせる
+          out.push((d + j) * Math.PI / 180);
+          out.push(-(d + j) * Math.PI / 180);
+        });
         return out;
       }
       return {
         hy: 0.35 + Math.random() * 0.3,        // 水平線の高さ
-        vl: -(0.4 + Math.random() * 0.9),      // 左の消失点の横位置(画面はば比。画面の外)
-        vr: 1.4 + Math.random() * 0.9,         // 右の消失点の横位置
+        vl: 0.1 + Math.random() * 0.12,        // 左の消失点の横位置(紙のはば比)
+        vr: 0.78 + Math.random() * 0.12,       // 右の消失点の横位置
         left: angles(), right: angles()
       };
     }
@@ -300,17 +302,23 @@
         });
         break;
       case "perspective": {
-        if (!guideData || !guideData.left) newGuideData();
+        // 古い形(消失点が画面の外だったころ)で保存されていたら、作り直す
+        if (!guideData || !guideData.left || guideData.vl < 0) newGuideData();
         var hy = guideData.hy * refH, far = Math.max(refW, refH) * 4;
-        ctx.strokeStyle = HORIZON_COLOR;
-        line(ctx, vx, hy, vx + vw, hy);   // 水平線
-        ctx.strokeStyle = GUIDE_COLOR;
-        // 消失点(hy の高さ・紙の外)から、紙に向かって線を引く。はみ出した分は自動で切れる
+        var lx = guideData.vl * refW, rx = guideData.vr * refW;
+        // 消失点に向かう、うすい線(上下に10本ずつ)
+        ctx.strokeStyle = "rgba(176,137,104,0.3)"; ctx.lineWidth = 1;
         guideData.left.forEach(function (t) {
-          line(ctx, guideData.vl * refW, hy, guideData.vl * refW + Math.cos(t) * far, hy + Math.sin(t) * far);
+          line(ctx, lx, hy, lx + Math.cos(t) * far, hy + Math.sin(t) * far);
         });
         guideData.right.forEach(function (t) {
-          line(ctx, guideData.vr * refW, hy, guideData.vr * refW - Math.cos(t) * far, hy + Math.sin(t) * far);
+          line(ctx, rx, hy, rx - Math.cos(t) * far, hy + Math.sin(t) * far);
+        });
+        // 水平線と、2つの消失点
+        ctx.strokeStyle = HORIZON_COLOR; ctx.fillStyle = HORIZON_COLOR; ctx.lineWidth = 1.5;
+        line(ctx, vx, hy, vx + vw, hy);
+        [lx, rx].forEach(function (x) {
+          ctx.beginPath(); ctx.arc(x, hy, 5, 0, Math.PI * 2); ctx.fill();
         });
         break;
       }
