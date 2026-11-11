@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="線の練習">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="theme-color" content="#faf6f1">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<title>線の練習</title>
+<style>
+  :root {
+    --bg: #faf6f1;
+    --card: #ffffff;
+    --line: #e6d9cc;
+    --text: #3d3128;
+    --muted: #8a7a6b;
+    --accent: #b08968;
+    --accent-dark: #8c6a4c;
+    --accent-soft: #f1e4d6;
+    --green: #5f8a6a;
+    --green-soft: #e3efe5;
+    color-scheme: light;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Yu Gothic", sans-serif;
+    font-size: 15px; line-height: 1.55;
+    /* お絵かき中に画面がびよーんと動かないようにする */
+    overscroll-behavior: none;
+    -webkit-user-select: none; user-select: none;
+    -webkit-touch-callout: none;
+  }
+  [hidden] { display: none !important; }
+  button { font: inherit; color: inherit; cursor: pointer; }
+
+  .small { font-size: 12px; color: var(--muted); }
+  .btn {
+    border: 1px solid var(--line); background: var(--card); border-radius: 10px;
+    padding: 8px 14px; min-height: 40px;
+  }
+  .btn:active { background: var(--accent-soft); }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: bold; }
+  .btn.primary:active { background: var(--accent-dark); }
+  .btn.on { background: var(--accent-soft); border-color: var(--accent); }
+  .btn:disabled { opacity: .35; }
+
+  /* ---------- キャンバス画面(アプリを開いて最初に出る画面) ---------- */
+  #practice {
+    position: fixed; inset: 0; display: flex; flex-direction: column;
+    background: var(--bg);
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  }
+  .progress { display: flex; gap: 3px; padding: 6px 12px 0; background: var(--card); }
+  .progress span { flex: 1; height: 5px; border-radius: 3px; background: var(--accent-soft); }
+  .progress span.done { background: var(--green); }
+  .progress span.now { background: var(--accent); }
+
+  .topbar { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--line); background: var(--card); }
+  .topbar .ttl { flex: 1; min-width: 0; font-weight: bold; font-size: 15px; line-height: 1.35; }
+  .topbar .ttl .num { color: var(--accent-dark); margin-right: 6px; }
+  .topbar .ttl .round { margin-left: 8px; font-weight: normal; font-size: 12px; color: var(--green); }
+  .pointbox { padding: 8px 14px; background: var(--accent-soft); font-size: 13px; white-space: pre-line; max-height: 34vh; overflow-y: auto; }
+  .pointbox a { color: var(--accent-dark); font-weight: bold; }
+  .dirbar { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 12px; align-items: center; background: var(--card); border-bottom: 1px solid var(--line); }
+  .dirbar .btn { padding: 4px 10px; min-height: 34px; font-size: 13px; }
+
+  #stage { position: relative; flex: 1; min-height: 0; background: #fff; touch-action: none; }
+  #stage canvas { position: absolute; left: 0; top: 0; touch-action: none; }
+  /* 見本アニメ(左上に小さく。指やペンはそのまま下のキャンバスに通る) */
+  #stage #demoCanvas {
+    left: 8px; top: 8px; width: 200px; height: 130px;
+    background: rgba(255,255,255,.92); border: 1px solid var(--line); border-radius: 10px;
+    pointer-events: none;
+  }
+
+  .toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; padding: 8px 12px; border-top: 1px solid var(--line); background: var(--card); }
+  .toolbar .sep { width: 1px; height: 28px; background: var(--line); margin: 0 4px; }
+  .toolbar .spacer { flex: 1; }
+  .color { width: 34px; height: 34px; border-radius: 50%; border: 3px solid transparent; padding: 0; }
+  .color.on { border-color: var(--accent); box-shadow: 0 0 0 2px #fff inset; }
+  #size { width: 110px; }
+  #timer { font-variant-numeric: tabular-nums; min-width: 52px; text-align: center; font-weight: bold; }
+
+  #toast {
+    position: fixed; left: 50%; bottom: calc(90px + env(safe-area-inset-bottom)); transform: translateX(-50%);
+    background: rgba(61,49,40,.92); color: #fff; padding: 10px 18px; border-radius: 999px;
+    font-size: 14px; z-index: 20; max-width: 90vw; text-align: center;
+  }
+
+  /* ---------- 記録の画面(キャンバスの上にかぶせて出す) ---------- */
+  #menu {
+    position: fixed; inset: 0; z-index: 10; background: var(--bg);
+    overflow-y: auto; -webkit-overflow-scrolling: touch;
+    padding: env(safe-area-inset-top) 0 env(safe-area-inset-bottom);
+  }
+  .menuwrap { max-width: 820px; margin: 0 auto; padding: 16px 16px 60px; }
+  h1 { font-size: 22px; margin: 14px 0 2px; letter-spacing: .04em; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; margin: 12px 0; }
+  .summary { display: flex; flex-wrap: wrap; gap: 14px 28px; align-items: center; }
+  .stat b { font-size: 26px; color: var(--accent-dark); }
+  .cal { display: grid; grid-template-columns: repeat(14, 1fr); gap: 4px; margin-top: 10px; }
+  .cal span { aspect-ratio: 1; border-radius: 4px; background: var(--accent-soft); }
+  .cal span.on { background: var(--accent); }
+  .cal span.today { outline: 2px solid var(--accent-dark); outline-offset: 1px; }
+
+  .group-title { margin: 22px 0 4px; font-size: 16px; color: var(--accent-dark); border-bottom: 2px solid var(--line); padding-bottom: 4px; }
+  .group-title .small { margin-left: 8px; font-weight: normal; }
+  .item {
+    display: flex; gap: 12px; align-items: center; width: 100%;
+    background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+    padding: 10px 14px; margin-top: 8px;
+  }
+  .item.current { border-color: var(--accent); background: var(--accent-soft); }
+  .no {
+    flex: none; width: 32px; height: 32px; border-radius: 50%;
+    background: var(--accent-soft); color: var(--accent-dark); font-weight: bold;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .item.current .no { background: var(--accent); color: #fff; }
+  .item.done .no { background: var(--green); color: #fff; }
+  .item .body { flex: 1; min-width: 0; }
+  .item .en { font-size: 11px; color: var(--muted); }
+  .item .ttl { font-weight: bold; font-size: 14px; }
+  .item .badge { flex: none; font-size: 12px; color: var(--green); background: var(--green-soft); border-radius: 999px; padding: 2px 10px; }
+  .item .badge.now { color: #fff; background: var(--accent); }
+  .item .badge.zero { color: var(--muted); background: var(--accent-soft); }
+  .footer .row { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0; }
+</style>
+</head>
+<body>
+
+<!-- キャンバス画面 -->
+<section id="practice">
+  <div class="progress" id="progress"></div>
+  <div class="topbar">
+    <button class="btn" id="menuBtn">≡ 記録</button>
+    <button class="btn" id="prev">← 前へ</button>
+    <div class="ttl"><span class="num" id="pNo"></span><span id="pTitle"></span><span class="round" id="pRound"></span></div>
+    <button class="btn" id="pointToggle">ポイント</button>
+    <button class="btn primary" id="done">できた! 次へ →</button>
+  </div>
+  <div class="pointbox" id="pointbox" hidden></div>
+  <div class="dirbar" id="dirbar" hidden></div>
+
+  <div id="stage">
+    <canvas id="guideCanvas"></canvas>
+    <canvas id="drawCanvas"></canvas>
+    <canvas id="demoCanvas" hidden></canvas>
+  </div>
+
+  <div class="toolbar">
+    <button class="btn on" id="toolPen">ペン</button>
+    <button class="btn" id="toolEraser">消しゴム</button>
+    <button class="color on" data-color="#2b2b2b" style="background:#2b2b2b" aria-label="黒"></button>
+    <button class="color" data-color="#c0392b" style="background:#c0392b" aria-label="赤"></button>
+    <button class="color" data-color="#2e6fb0" style="background:#2e6fb0" aria-label="青"></button>
+    <input type="range" id="size" min="1" max="12" step="0.5" value="4" aria-label="太さ">
+    <span class="sep"></span>
+    <button class="btn" id="undo">1つ戻す</button>
+    <button class="btn" id="clear">全部消す</button>
+    <span class="sep"></span>
+    <button class="btn on" id="guideBtn">お手本</button>
+    <button class="btn" id="gridBtn">方眼</button>
+    <button class="btn on" id="demoBtn" hidden>見本アニメ</button>
+    <button class="btn" id="redots" hidden>点を打ち直す</button>
+    <span class="sep"></span>
+    <button class="btn" id="timerBtn">▶</button>
+    <span id="timer">0:00</span>
+    <span class="spacer"></span>
+    <button class="btn" id="saveImg">画像で保存</button>
+  </div>
+</section>
+
+<!-- 記録の画面 -->
+<main id="menu" hidden>
+  <div class="menuwrap">
+    <button class="btn primary" id="menuClose">← キャンバスにもどる</button>
+    <h1>練習の記録</h1>
+    <p class="small">練習は毎日1番から順番に進むよ。日付が変わったら、また1番から。</p>
+
+    <div class="card">
+      <div class="summary">
+        <div class="stat"><b id="streak">0</b> 日連続</div>
+        <div class="stat">今日 <b id="todayCount">0</b> 回やった</div>
+        <div class="stat">全部で <b id="totalDays">0</b> 日練習した</div>
+      </div>
+      <div class="cal" id="cal"></div>
+      <div class="small" style="margin-top:6px">いちばん右が今日。色がついてる日は、練習した日だよ(最近28日)。</div>
+    </div>
+
+    <div id="list"></div>
+
+    <div class="footer">
+      <div class="card">
+        <b>記録のバックアップ</b>
+        <div class="small">記録(練習した日)はこのiPadの中だけに入ってるよ。機種変更や、ブラウザの履歴を消す前に書き出しておくと安心。描いた絵は入らないから、残したい絵は「画像で保存」してね。</div>
+        <div class="row">
+          <button class="btn" id="export">書き出す</button>
+          <button class="btn" id="import">読み込む</button>
+          <input type="file" id="importFile" accept="application/json,.json" hidden>
+        </div>
+      </div>
+      <p class="small" id="credit"></p>
+    </div>
+  </div>
+</main>
+
+<div id="toast" hidden></div>
+
+<script src="data.js"></script>
+<script src="demo.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
