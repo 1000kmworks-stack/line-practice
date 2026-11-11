@@ -40,10 +40,11 @@
     if (!d || typeof d !== "object") d = {};
     if (!d.days || typeof d.days !== "object") d.days = {};
     if (!d.progress || typeof d.progress !== "object") d.progress = { date: "", stage: 0 };
-    if (!d.drawings || typeof d.drawings !== "object") d.drawings = { date: "", strokes: {}, dots: {}, pages: {} };
+    if (!d.drawings || typeof d.drawings !== "object") d.drawings = { date: "", strokes: {}, dots: {}, pages: {}, ref: {} };
     if (!d.drawings.strokes) d.drawings.strokes = {};
     if (!d.drawings.dots) d.drawings.dots = {};
     if (!d.drawings.pages) d.drawings.pages = {};
+    if (!d.drawings.ref) d.drawings.ref = {};
     return d;
   }
   function loadState() {
@@ -72,7 +73,7 @@
     var today = dateKey();
     if (state.progress.date === today) return false;
     state.progress = { date: today, stage: 0 };
-    state.drawings = { date: today, strokes: {}, dots: {}, pages: {} };
+    state.drawings = { date: today, strokes: {}, dots: {}, pages: {}, ref: {} };
     drawingsMem = {}; dotsMem = {};
     saveState();
     return true;
@@ -137,17 +138,72 @@
   var gctx = gc.getContext("2d"), dctx = dc.getContext("2d");
   var W = 0, H = 0, dpr = 1;
 
+  // 描く場所は、画面より大きい「紙」。線もお手本も紙の上の位置(紙の座標)で持つので、
+  // 画面のはばが変わっても、一緒に動く。画面に入りきらない分は、指でずらして見る。
+  var panX = 0, panY = 0;       // 画面の左上が、紙のどこにあたるか
+  var refW = 0, refH = 0;       // お手本をおく基準の大きさ(その練習をはじめて開いたときの画面の大きさ)
+  var needCenter = false;       // 練習を開いた直後に、紙の真ん中が見えるようにする
+
+  // 紙の大きさ(基準の大きさか、描いた線がはみ出していればそこまで)
+  function worldSize() {
+    var mw = refW, mh = refH;
+    strokes.forEach(function (s) {
+      s.pts.forEach(function (p) {
+        if (p.x + 40 > mw) mw = p.x + 40;
+        if (p.y + 40 > mh) mh = p.y + 40;
+      });
+    });
+    return { w: mw, h: mh };
+  }
+  function clampPan() {
+    var ws = worldSize();
+    panX = Math.max(0, Math.min(panX, Math.max(0, ws.w + 80 - W)));
+    panY = Math.max(0, Math.min(panY, Math.max(0, ws.h + 80 - H)));
+  }
+  function ensureRef() {
+    var key = stageKey(), ref = state.drawings.ref[key];
+    if (!ref) { ref = state.drawings.ref[key] = { w: W, h: H }; scheduleSave(); }
+    // まだ何も描いてなくて、画面が基準より大きくなったときは、大きいほうに合わせてお手本をおき直す
+    else if (strokes.length === 0 && (W > ref.w || H > ref.h)) {
+      ref.w = Math.max(ref.w, W); ref.h = Math.max(ref.h, H); scheduleSave();
+    }
+    refW = ref.w; refH = ref.h;
+  }
+  function clearCtx(ctx) {
+    ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+    ctx.restore();
+  }
+  function applyTransform() {
+    gctx.setTransform(dpr, 0, 0, dpr, -panX * dpr, -panY * dpr);
+    dctx.setTransform(dpr, 0, 0, dpr, -panX * dpr, -panY * dpr);
+    updatePanBar();
+  }
+  // 画面に入りきらないときだけ、下に小さな目印を出す
+  function updatePanBar() {
+    var ws = worldSize(), bar = $("panbar"), thumb = $("panthumb");
+    var total = ws.w + 80;
+    bar.hidden = ws.w <= W + 1;   // 紙が画面に収まっているときは出さない
+    if (bar.hidden) return;
+    thumb.style.width = (W / total * 100) + "%";
+    thumb.style.left = (panX / total * 100) + "%";
+  }
+
   function sizeCanvases() {
     var r = stage.getBoundingClientRect();
     var w = Math.floor(r.width), hh = Math.floor(r.height);
     if (!w || !hh) return;
+    var oldW = W;
     W = w; H = hh; dpr = window.devicePixelRatio || 1;
+    ensureRef();
+    if (needCenter) { panX = Math.max(0, (refW - W) / 2); panY = 0; needCenter = false; }
+    else if (oldW && oldW !== W) panX += (oldW - W) / 2;   // 2画面などではばが変わっても、見ている真ん中をそのままに
+    clampPan();
     [gc, dc].forEach(function (c) {
       c.width = Math.round(W * dpr); c.height = Math.round(H * dpr);
       c.style.width = W + "px"; c.style.height = H + "px";
     });
-    gctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    dctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    applyTransform();
     drawGuide();
     redrawStrokes();
   }
@@ -176,14 +232,14 @@
         var minGap = 80, minLine = 30 - Math.floor(tryNo / 10) * 6;   // うまくいかなければ、少しずつゆるめる
         while (dots.length < 8 && guard++ < 400) {
           var p = { x: 0.08 + Math.random() * 0.84, y: 0.08 + Math.random() * 0.84 };
-          var P = { x: p.x * W, y: p.y * H };
+          var P = { x: p.x * refW, y: p.y * refH };
           var ok = dots.every(function (q) {
-            var dx = (p.x - q.x) * W, dy = (p.y - q.y) * H;
+            var dx = (p.x - q.x) * refW, dy = (p.y - q.y) * refH;
             return dx * dx + dy * dy > minGap * minGap;    // 近すぎる点は避ける
           });
           for (var i = 0; ok && i < dots.length; i++) {
             for (var j = i + 1; ok && j < dots.length; j++) {
-              var A = { x: dots[i].x * W, y: dots[i].y * H }, B = { x: dots[j].x * W, y: dots[j].y * H };
+              var A = { x: dots[i].x * refW, y: dots[i].y * refH }, B = { x: dots[j].x * refW, y: dots[j].y * refH };
               if (distToLine(A, B, P) < minLine || distToLine(P, A, B) < minLine || distToLine(P, B, A) < minLine) ok = false;
             }
           }
@@ -222,65 +278,68 @@
     ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
   }
 
-  function drawGuide() {
-    if (!W) return;
-    gctx.clearRect(0, 0, W, H);
-
+  // お手本と方眼を、紙の (vx,vy)〜(vx+vw,vy+vh) の範囲に描く。画面にも、保存する画像にも使う。
+  function paintGuide(ctx, vx, vy, vw, vh) {
     if (gridOn) {
-      gctx.fillStyle = "rgba(176,137,104,0.45)";
-      for (var x = 40; x < W; x += 40) {
-        for (var y = 40; y < H; y += 40) gctx.fillRect(x - 1, y - 1, 2, 2);
+      ctx.fillStyle = "rgba(176,137,104,0.45)";
+      for (var x = Math.ceil(vx / 40) * 40; x < vx + vw; x += 40) {
+        for (var y = Math.ceil(vy / 40) * 40; y < vy + vh; y += 40) ctx.fillRect(x - 1, y - 1, 2, 2);
       }
     }
     if (!guideOn || !current || !current.guide) return;
 
-    var cx = W / 2, cy = H / 2, m = Math.min(W, H);
-    gctx.strokeStyle = GUIDE_COLOR; gctx.fillStyle = GUIDE_COLOR; gctx.lineWidth = 1.5;
+    var cx = refW / 2, cy = refH / 2, m = Math.min(refW, refH);
+    ctx.strokeStyle = GUIDE_COLOR; ctx.fillStyle = GUIDE_COLOR; ctx.lineWidth = 1.5;
 
     switch (current.guide) {
       case "dots":
         // 古い形(点が9個以上など)で保存されていたら、作り直す
         if (!Array.isArray(guideData) || guideData.length > 8) newGuideData();
         guideData.forEach(function (p) {
-          gctx.beginPath(); gctx.arc(p.x * W, p.y * H, 5, 0, Math.PI * 2); gctx.fill();
+          ctx.beginPath(); ctx.arc(p.x * refW, p.y * refH, 5, 0, Math.PI * 2); ctx.fill();
         });
         break;
       case "perspective": {
         if (!guideData || !guideData.left) newGuideData();
-        var hy = guideData.hy * H, far = Math.max(W, H) * 4;
-        gctx.strokeStyle = HORIZON_COLOR;
-        line(gctx, 0, hy, W, hy);   // 水平線
-        gctx.strokeStyle = GUIDE_COLOR;
-        // 消失点(hy の高さ・画面の外)から、画面に向かって線を引く。はみ出した分は自動で切れる
+        var hy = guideData.hy * refH, far = Math.max(refW, refH) * 4;
+        ctx.strokeStyle = HORIZON_COLOR;
+        line(ctx, vx, hy, vx + vw, hy);   // 水平線
+        ctx.strokeStyle = GUIDE_COLOR;
+        // 消失点(hy の高さ・紙の外)から、紙に向かって線を引く。はみ出した分は自動で切れる
         guideData.left.forEach(function (t) {
-          line(gctx, guideData.vl * W, hy, guideData.vl * W + Math.cos(t) * far, hy + Math.sin(t) * far);
+          line(ctx, guideData.vl * refW, hy, guideData.vl * refW + Math.cos(t) * far, hy + Math.sin(t) * far);
         });
         guideData.right.forEach(function (t) {
-          line(gctx, guideData.vr * W, hy, guideData.vr * W - Math.cos(t) * far, hy + Math.sin(t) * far);
+          line(ctx, guideData.vr * refW, hy, guideData.vr * refW - Math.cos(t) * far, hy + Math.sin(t) * far);
         });
         break;
       }
       case "cross":
-        // 十字線だけ(画面いっぱいに)
-        gctx.strokeStyle = HORIZON_COLOR;
-        line(gctx, 0, cy, W, cy);
-        line(gctx, cx, 0, cx, H);
+        // 十字線だけ(見えている範囲いっぱいに)
+        ctx.strokeStyle = HORIZON_COLOR;
+        line(ctx, vx, cy, vx + vw, cy);
+        line(ctx, cx, vy, cx, vy + vh);
         break;
       case "circleCross":
       case "circleCross8": {
         // 円と十字線。"circleCross8" は、そこに斜め線を2本足す
         var R = m * 0.42, ext = m * 0.47;
-        gctx.beginPath(); gctx.arc(cx, cy, R, 0, Math.PI * 2); gctx.stroke();
-        line(gctx, cx - ext, cy, cx + ext, cy);
-        line(gctx, cx, cy - ext, cx, cy + ext);
+        ctx.beginPath(); ctx.arc(cx, cy, R, 0, Math.PI * 2); ctx.stroke();
+        line(ctx, cx - ext, cy, cx + ext, cy);
+        line(ctx, cx, cy - ext, cx, cy + ext);
         if (current.guide === "circleCross8") {
           var d = ext * Math.SQRT1_2;
-          line(gctx, cx - d, cy - d, cx + d, cy + d);
-          line(gctx, cx + d, cy - d, cx - d, cy + d);
+          line(ctx, cx - d, cy - d, cx + d, cy + d);
+          line(ctx, cx + d, cy - d, cx - d, cy + d);
         }
         break;
       }
     }
+  }
+  function drawGuide() {
+    if (!W) return;
+    clearCtx(gctx);
+    paintGuide(gctx, panX, panY, W, H);
   }
 
   // ---------- 線を描く ----------
@@ -325,7 +384,7 @@
 
   function redrawStrokes() {
     if (!W) return;
-    dctx.clearRect(0, 0, W, H);
+    clearCtx(dctx);
     strokes.forEach(function (s) {
       for (var i = 0; i < s.pts.length; i++) segment(dctx, s, i);
       finishStroke(dctx, s);
@@ -334,7 +393,6 @@
   }
 
   var active = null;     // 描いている最中の線
-  var penSeen = false;   // Apple Pencil を使ったら、指のタッチは無視する(手のひら対策)
 
   function toPoint(e, prev) {
     var r = dc.getBoundingClientRect();
@@ -342,12 +400,44 @@
     var raw = e.pointerType === "pen" ? (e.pressure || 0.5) : 0.5;
     // 筆圧がガタガタしないよう、前の値とまぜる
     var p = prev ? prev.p * 0.6 + raw * 0.4 : raw;
-    return { x: e.clientX - r.left, y: e.clientY - r.top, p: p };
+    return { x: e.clientX - r.left + panX, y: e.clientY - r.top + panY, p: p };
+  }
+
+  // 指の動かしかた:「動かす」(指でずらす)か「描く」(指でも描く)か。Apple Pencil とマウスは、いつも描く。
+  var fingerPan = true;
+  try { if (localStorage.getItem("line-practice-finger") === "draw") fingerPan = false; } catch (err) { /* 保存できなくても使える */ }
+  function renderFingerBtn() {
+    var b = $("fingerBtn");
+    b.textContent = fingerPan ? "指:動かす" : "指:描く";
+    b.classList.toggle("on", fingerPan);
+  }
+  $("fingerBtn").addEventListener("click", function () {
+    fingerPan = !fingerPan; renderFingerBtn();
+    try { localStorage.setItem("line-practice-finger", fingerPan ? "pan" : "draw"); } catch (err) { /* 同上 */ }
+    toast(fingerPan ? "指でキャンバスをずらせるよ(描くのはペン)" : "指でも描けるよ");
+  });
+  renderFingerBtn();
+
+  var panning = null;      // 指でずらしている最中の情報
+  var redrawQueued = false;
+  function queueRedraw() {
+    if (redrawQueued) return;
+    redrawQueued = true;
+    requestAnimationFrame(function () {
+      redrawQueued = false;
+      applyTransform(); drawGuide(); redrawStrokes();
+    });
   }
 
   dc.addEventListener("pointerdown", function (e) {
-    if (e.pointerType === "pen") penSeen = true;
-    else if (e.pointerType === "touch" && penSeen) return;
+    if (e.pointerType === "touch" && fingerPan) {
+      if (!e.isPrimary || active) return;
+      e.preventDefault();
+      try { dc.setPointerCapture(e.pointerId); } catch (err) { /* なくても動く */ }
+      panning = { id: e.pointerId, x: e.clientX, y: e.clientY, px: panX, py: panY };
+      return;
+    }
+    // 「指:描く」を選んでいるときは指でも描く(Apple Pencil で描いている最中のタッチだけ、手のひらとして無視する)
     if (!e.isPrimary || active) return;
     e.preventDefault();
     try { dc.setPointerCapture(e.pointerId); } catch (err) { /* なくても描ける */ }
@@ -361,6 +451,14 @@
   });
 
   dc.addEventListener("pointermove", function (e) {
+    if (panning && e.pointerId === panning.id) {
+      e.preventDefault();
+      panX = panning.px - (e.clientX - panning.x);
+      panY = panning.py - (e.clientY - panning.y);
+      clampPan();
+      queueRedraw();
+      return;
+    }
     if (!active || e.pointerId !== active.id) return;
     e.preventDefault();
     var evs = e.getCoalescedEvents ? e.getCoalescedEvents() : [e];
@@ -374,10 +472,12 @@
   });
 
   function endStroke(e) {
+    if (panning && e.pointerId === panning.id) { panning = null; return; }
     if (!active || e.pointerId !== active.id) return;
     finishStroke(dctx, active);
     dctx.globalCompositeOperation = "source-over";
     active = null;
+    updatePanBar();   // 線が紙のはしまで届いたとき、目印を更新する
     scheduleSave();
   }
   dc.addEventListener("pointerup", endStroke);
@@ -504,20 +604,33 @@
       downloadBlob(blob, name);
     }
   }
-  // 線の配列から、白い背景の画像を作る(消しゴムを正しく効かせるため、線だけ別の紙に描いてから重ねる)
-  function canvasFromStrokes(arr) {
+  // 紙の全体(基準の大きさ、または線がはみ出していればそこまで)を、白い背景の画像にする。
+  // 消しゴムを正しく効かせるため、線だけ別の紙に描いてから重ねる。
+  function renderWorldCanvas(arr, withGuide) {
+    var mw = refW, mh = refH;
+    arr.forEach(function (s) {
+      s.pts.forEach(function (p) { if (p.x + 40 > mw) mw = p.x + 40; if (p.y + 40 > mh) mh = p.y + 40; });
+    });
+    var sc = dpr;
+    if (mw * sc * mh * sc > 16e6) sc = Math.sqrt(16e6 / (mw * mh));   // 大きすぎるときは小さくする
+    var w = Math.round(mw * sc), h = Math.round(mh * sc);
     var layer = document.createElement("canvas");
-    layer.width = dc.width; layer.height = dc.height;
+    layer.width = w; layer.height = h;
     var lx = layer.getContext("2d");
-    lx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    lx.setTransform(sc, 0, 0, sc, 0, 0);
     arr.forEach(function (s) {
       for (var i = 0; i < s.pts.length; i++) segment(lx, s, i);
       finishStroke(lx, s);
     });
     var out = document.createElement("canvas");
-    out.width = dc.width; out.height = dc.height;
+    out.width = w; out.height = h;
     var o = out.getContext("2d");
-    o.fillStyle = "#fff"; o.fillRect(0, 0, out.width, out.height);
+    o.fillStyle = "#fff"; o.fillRect(0, 0, w, h);
+    if (withGuide) {
+      o.save(); o.setTransform(sc, 0, 0, sc, 0, 0);
+      paintGuide(o, 0, 0, mw, mh);
+      o.restore();
+    }
     o.drawImage(layer, 0, 0);
     return out;
   }
@@ -532,7 +645,7 @@
       var jobs = [];
       for (var i = 0; i < pageCount; i++) {
         var arr = strokesFor(pageKey(i));
-        if (arr.length) jobs.push({ name: "line-practice-" + tag + "-" + date + "-p" + (i + 1) + ".png", c: canvasFromStrokes(arr) });
+        if (arr.length) jobs.push({ name: "line-practice-" + tag + "-" + date + "-p" + (i + 1) + ".png", c: renderWorldCanvas(arr, guideOn || gridOn) });
       }
       if (!jobs.length) { toast("まだ何も描いてないよ"); return; }
       Promise.all(jobs.map(function (j) { return toBlobAsync(j.c); })).then(function (blobs) {
@@ -546,12 +659,7 @@
       });
       return;
     }
-    var out = document.createElement("canvas");
-    out.width = dc.width; out.height = dc.height;
-    var o = out.getContext("2d");
-    o.fillStyle = "#fff"; o.fillRect(0, 0, out.width, out.height);
-    if (guideOn || gridOn) o.drawImage(gc, 0, 0);
-    o.drawImage(dc, 0, 0);
+    var out = renderWorldCanvas(strokes, guideOn || gridOn);
     var name = "line-practice-" + tag + "-" + date + ".png";
     out.toBlob(function (blob) {
       if (!blob) { toast("画像にできなかったよ"); return; }
@@ -645,6 +753,7 @@
     pageCount = usePages && pg ? Math.max(1, pg.n) : 1;
     pageIdx = usePages && pg ? Math.min(Math.max(0, pg.cur), pageCount - 1) : 0;
     strokes = strokesFor(pageKey(pageIdx));
+    needCenter = !!resetView;
     renderPageBar();
     guideData = dotsMem[stageKey()] || state.drawings.dots[stageKey()] || null;
     dotsMem[stageKey()] = guideData;

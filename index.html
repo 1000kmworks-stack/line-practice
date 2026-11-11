@@ -72,6 +72,9 @@
 
   #stage { position: relative; flex: 1; min-height: 0; background: #fff; touch-action: none; }
   #stage canvas { position: absolute; left: 0; top: 0; touch-action: none; }
+  /* 画面に入りきらないときの、位置の目印 */
+  #panbar { position: absolute; left: 12px; right: 12px; bottom: 6px; height: 5px; border-radius: 3px; background: rgba(176,137,104,.18); pointer-events: none; }
+  #panthumb { position: absolute; top: 0; bottom: 0; border-radius: 3px; background: rgba(176,137,104,.7); }
   /* 見本アニメ(左上に小さく。指やペンはそのまま下のキャンバスに通る) */
   #stage #demoCanvas {
     left: 8px; top: 8px; width: 200px; height: 130px;
@@ -165,6 +168,7 @@
     <canvas id="guideCanvas"></canvas>
     <canvas id="drawCanvas"></canvas>
     <canvas id="demoCanvas" hidden></canvas>
+    <div id="panbar" hidden><div id="panthumb"></div></div>
   </div>
 
   <div class="pagebar" id="pagebar" hidden>
@@ -183,6 +187,8 @@
     <button class="color" data-color="#2e6fb0" style="background:#2e6fb0" aria-label="青"></button>
     <button class="color" data-color="#a9d6ee" style="background:#a9d6ee" aria-label="下書き用の薄い水色"></button>
     <input type="range" id="size" min="1" max="12" step="0.5" value="4" aria-label="太さ">
+    <span class="sep"></span>
+    <button class="btn on" id="fingerBtn">指:動かす</button>
     <span class="sep"></span>
     <button class="btn" id="undo">1つ戻す</button>
     <button class="btn" id="clear">全部消す</button>
