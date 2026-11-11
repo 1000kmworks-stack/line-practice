@@ -27,6 +27,7 @@ var DIRECTIONS = [
 // 練習メニュー本体
 //   no: 番号 / group: グループid / en: 英語の説明 / title: 見出し / point: ポイント
 //   times: 1日にやる回数(省略すると1回)
+//   pages: true なら、1回目は「新しいページ」で白紙を次々に切り替えて描ける
 //   directions: true なら向きの選択ボタンを出す
 //   guide: 画面に薄く出すお手本の種類
 //     dots(点・毎回ランダム) / perspective(水平線+パースの線・毎回ランダム) / cross(十字線だけ)
@@ -106,7 +107,7 @@ var PRACTICES = [
     point: "円柱や直方体から、立体的で複雑な物を描く練習。円・楕円と箱の練習を組み合わせて、機械の部品や歯車、ゲーム機やテレビのような身近な物を描く。1ページの中に、2つ描く。"
   },
   {
-    no: 13, group: "figure", times: 2,
+    no: 13, group: "figure", times: 2, pages: true,
     en: "Full-body sketch x2 (line-of-action.com class mode 1hr)",
     title: "全身のスケッチ ×2回(line-of-action.com のクラスモード・1時間)",
     point: "line-of-action.com は、人のポーズの写真が時間を決めて次々に出てくるサイト。クラスモードは、短いスケッチから少しずつ長くなっていく1時間のコース。\n1回目:クラスモードを1時間。短いアタリだけのスケッチから始まって、だんだん1枚の時間が長くなる。\n2回目:1回目に描いた中から気に入った構図を1つ選んで、色を塗るところまで仕上げる。",

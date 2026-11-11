@@ -40,9 +40,10 @@
     if (!d || typeof d !== "object") d = {};
     if (!d.days || typeof d.days !== "object") d.days = {};
     if (!d.progress || typeof d.progress !== "object") d.progress = { date: "", stage: 0 };
-    if (!d.drawings || typeof d.drawings !== "object") d.drawings = { date: "", strokes: {}, dots: {} };
+    if (!d.drawings || typeof d.drawings !== "object") d.drawings = { date: "", strokes: {}, dots: {}, pages: {} };
     if (!d.drawings.strokes) d.drawings.strokes = {};
     if (!d.drawings.dots) d.drawings.dots = {};
+    if (!d.drawings.pages) d.drawings.pages = {};
     return d;
   }
   function loadState() {
@@ -71,7 +72,7 @@
     var today = dateKey();
     if (state.progress.date === today) return false;
     state.progress = { date: today, stage: 0 };
-    state.drawings = { date: today, strokes: {}, dots: {} };
+    state.drawings = { date: today, strokes: {}, dots: {}, pages: {} };
     drawingsMem = {}; dotsMem = {};
     saveState();
     return true;
@@ -403,12 +404,40 @@
       };
     });
   }
+  // ---------- ページ(13番の1回目のように、白紙を次々に切り替えて描く練習用) ----------
+  var usePages = false, pageIdx = 0, pageCount = 1;
+  function pageKey(i) { return stageKey() + (i ? "." + i : ""); }   // 0ページ目は、ふつうの練習と同じ名前
+  function savePages() {
+    if (usePages) state.drawings.pages[stageKey()] = { cur: pageIdx, n: pageCount };
+  }
+  function renderPageBar() {
+    $("pagebar").hidden = !usePages;
+    $("pageLabel").textContent = (pageIdx + 1) + " / " + pageCount;
+    $("pagePrev").disabled = pageIdx === 0;
+    $("pageNext").disabled = pageIdx >= pageCount - 1;
+  }
+  function showPage(i) {
+    if (i < 0 || i >= pageCount) return;
+    pageIdx = i;
+    strokes = strokesFor(pageKey(i));
+    redrawStrokes(); renderPageBar(); savePages(); scheduleSave();
+  }
+  $("pagePrev").addEventListener("click", function () { showPage(pageIdx - 1); });
+  $("pageNext").addEventListener("click", function () { showPage(pageIdx + 1); });
+  // 新しいページ: いちばん後ろのページが白紙なら、そこへ移るだけ(白紙のページを増やさない)
+  $("pageNew").addEventListener("click", function () {
+    var last = pageCount - 1;
+    if (strokesFor(pageKey(last)).length > 0) { pageCount++; last = pageCount - 1; }
+    showPage(last);
+  });
+
   function strokesFor(key) {
     if (!drawingsMem[key]) drawingsMem[key] = unpackStrokes(state.drawings.strokes[key]);
     return drawingsMem[key];
   }
   function flushDrawings() {
     state.drawings.date = state.progress.date;
+    savePages();
     // まだ開いてないステップの保存分は残したまま、開いたステップの分だけ上書きする
     Object.keys(drawingsMem).forEach(function (k) {
       if (drawingsMem[k].length) state.drawings.strokes[k] = packStrokes(drawingsMem[k]);
@@ -475,15 +504,55 @@
       downloadBlob(blob, name);
     }
   }
+  // 線の配列から、白い背景の画像を作る(消しゴムを正しく効かせるため、線だけ別の紙に描いてから重ねる)
+  function canvasFromStrokes(arr) {
+    var layer = document.createElement("canvas");
+    layer.width = dc.width; layer.height = dc.height;
+    var lx = layer.getContext("2d");
+    lx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    arr.forEach(function (s) {
+      for (var i = 0; i < s.pts.length; i++) segment(lx, s, i);
+      finishStroke(lx, s);
+    });
+    var out = document.createElement("canvas");
+    out.width = dc.width; out.height = dc.height;
+    var o = out.getContext("2d");
+    o.fillStyle = "#fff"; o.fillRect(0, 0, out.width, out.height);
+    o.drawImage(layer, 0, 0);
+    return out;
+  }
+  function toBlobAsync(c) {
+    return new Promise(function (resolve) { c.toBlob(resolve, "image/png"); });
+  }
+
   $("saveImg").addEventListener("click", function () {
+    var tag = current ? current.no : "free", date = dateKey();
+    if (usePages) {
+      // 描いたページを全部、まとめて保存する
+      var jobs = [];
+      for (var i = 0; i < pageCount; i++) {
+        var arr = strokesFor(pageKey(i));
+        if (arr.length) jobs.push({ name: "line-practice-" + tag + "-" + date + "-p" + (i + 1) + ".png", c: canvasFromStrokes(arr) });
+      }
+      if (!jobs.length) { toast("まだ何も描いてないよ"); return; }
+      Promise.all(jobs.map(function (j) { return toBlobAsync(j.c); })).then(function (blobs) {
+        var files = [];
+        try { files = blobs.map(function (b, k) { return new File([b], jobs[k].name, { type: "image/png" }); }); } catch (err) { files = []; }
+        if (files.length && navigator.canShare && navigator.canShare({ files: files })) {
+          navigator.share({ files: files }).catch(function () {});
+        } else {
+          blobs.forEach(function (b, k) { downloadBlob(b, jobs[k].name); });
+        }
+      });
+      return;
+    }
     var out = document.createElement("canvas");
     out.width = dc.width; out.height = dc.height;
     var o = out.getContext("2d");
     o.fillStyle = "#fff"; o.fillRect(0, 0, out.width, out.height);
     if (guideOn || gridOn) o.drawImage(gc, 0, 0);
     o.drawImage(dc, 0, 0);
-    var tag = current ? current.no : "free";
-    var name = "line-practice-" + tag + "-" + dateKey() + ".png";
+    var name = "line-practice-" + tag + "-" + date + ".png";
     out.toBlob(function (blob) {
       if (!blob) { toast("画像にできなかったよ"); return; }
       shareOrDownload(blob, name, "image/png");
@@ -571,7 +640,12 @@
   function enterStage(resetView) {
     var st = currentStage();
     current = st ? st.practice : null;
-    strokes = strokesFor(stageKey());
+    usePages = !!(current && current.pages && st.round === 1);
+    var pg = state.drawings.pages[stageKey()];
+    pageCount = usePages && pg ? Math.max(1, pg.n) : 1;
+    pageIdx = usePages && pg ? Math.min(Math.max(0, pg.cur), pageCount - 1) : 0;
+    strokes = strokesFor(pageKey(pageIdx));
+    renderPageBar();
     guideData = dotsMem[stageKey()] || state.drawings.dots[stageKey()] || null;
     dotsMem[stageKey()] = guideData;
 
