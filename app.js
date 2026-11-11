@@ -519,7 +519,7 @@
     if (usePages) state.drawings.pages[stageKey()] = { cur: pageIdx, n: pageCount };
   }
   function renderPageBar() {
-    $("pagebar").hidden = !usePages;
+    $("pagebar").hidden = !usePages || !!(current && current.directions);
     $("pageLabel").textContent = (pageIdx + 1) + " / " + pageCount;
     $("pagePrev").disabled = pageIdx === 0;
     $("pageNext").disabled = pageIdx >= pageCount - 1;
@@ -701,13 +701,11 @@
   }
 
   // ---------- 向きの選択(1・2番) ----------
-  // 向きを変えたら、キャンバスを白紙に戻す(同じ向きをもう一度押したときは何もしない)
+  // 向きを変えたら、その向きのページ(はじめてなら白紙)に切り替える。前の向きの絵は残っていて、向きを戻すとまた見られる
   function setDirection(i) {
     if (i === direction) return;
     direction = i;
-    strokes.length = 0;
-    redrawStrokes();
-    scheduleSave();
+    showPage(i);       // 向きごとに別のページ。前の向きの絵は消さずにとっておく
     renderDirbar();
     updateDemo();
   }
@@ -756,9 +754,11 @@
   function enterStage(resetView) {
     var st = currentStage();
     current = st ? st.practice : null;
-    usePages = !!(current && current.pages && st.round === 1);
+    // 「新しいページ」で増やす練習(13番の1回目)と、向きごとにページが分かれる練習(1・2番)
+    var byDirection = !!(current && current.directions);
+    usePages = !!(current && ((current.pages && st.round === 1) || byDirection));
     var pg = state.drawings.pages[stageKey()];
-    pageCount = usePages && pg ? Math.max(1, pg.n) : 1;
+    pageCount = byDirection ? DIRECTIONS.length : (usePages && pg ? Math.max(1, pg.n) : 1);
     pageIdx = usePages && pg ? Math.min(Math.max(0, pg.cur), pageCount - 1) : 0;
     strokes = strokesFor(pageKey(pageIdx));
     needCenter = !!resetView;
@@ -774,6 +774,7 @@
       $("pointbox").hidden = true;
     }
 
+    if (current && current.directions) direction = pageIdx;
     renderProgress();
     var pb = $("pointbox");
     if (current) {
