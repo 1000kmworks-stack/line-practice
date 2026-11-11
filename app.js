@@ -157,34 +157,56 @@
   var GUIDE_COLOR = "rgba(176,137,104,0.55)";
   var HORIZON_COLOR = "rgba(140,106,76,0.75)";
 
+  // 点pから、点aとbを通る直線までの距離(ピクセル)
+  function distToLine(a, b, p) {
+    var dx = b.x - a.x, dy = b.y - a.y, len = Math.sqrt(dx * dx + dy * dy) || 1;
+    return Math.abs(dx * (p.y - a.y) - dy * (p.x - a.x)) / len;
+  }
+
   // お手本のもとになる値を、ランダムに作る。
-  // 位置や大きさは画面に対する割合で持つので、画面サイズが変わってもずれない。
+  // 位置は画面に対する割合で持つので、画面サイズが変わってもずれない。
   function makeGuideData() {
     var kind = current && current.guide;
     if (kind === "dots") {
-      var dots = [], guard = 0;
-      while (dots.length < 14 && guard++ < 500) {
-        var p = { x: 0.08 + Math.random() * 0.84, y: 0.08 + Math.random() * 0.84 };
-        var ok = dots.every(function (q) {
-          var dx = (p.x - q.x) * W, dy = (p.y - q.y) * H;
-          return dx * dx + dy * dy > 70 * 70;   // 近すぎる点は避ける
-        });
-        if (ok) dots.push(p);
+      // 点は最大8個。どの3つも一直線に並ばない(点と点をつなぐ線が、ほかの点の上を通らない)ようにする
+      var best = [];
+      for (var tryNo = 0; tryNo < 40 && best.length < 8; tryNo++) {
+        var dots = [], guard = 0;
+        var minGap = 80, minLine = 30 - Math.floor(tryNo / 10) * 6;   // うまくいかなければ、少しずつゆるめる
+        while (dots.length < 8 && guard++ < 400) {
+          var p = { x: 0.08 + Math.random() * 0.84, y: 0.08 + Math.random() * 0.84 };
+          var P = { x: p.x * W, y: p.y * H };
+          var ok = dots.every(function (q) {
+            var dx = (p.x - q.x) * W, dy = (p.y - q.y) * H;
+            return dx * dx + dy * dy > minGap * minGap;    // 近すぎる点は避ける
+          });
+          for (var i = 0; ok && i < dots.length; i++) {
+            for (var j = i + 1; ok && j < dots.length; j++) {
+              var A = { x: dots[i].x * W, y: dots[i].y * H }, B = { x: dots[j].x * W, y: dots[j].y * H };
+              if (distToLine(A, B, P) < minLine || distToLine(P, A, B) < minLine || distToLine(P, B, A) < minLine) ok = false;
+            }
+          }
+          if (ok) dots.push(p);
+        }
+        if (dots.length > best.length) best = dots;
       }
-      return dots;
+      return best;
     }
-    if (kind === "cube") {
-      var above = Math.random() < 0.4;   // 水平線より上にある立方体(下から見上げる形)か
+    if (kind === "perspective") {
+      // 水平線と、左右の消失点(画面の外)に向かうパースの線。消失点そのものは画面に出さない
+      function angles() {
+        var out = [], sign = Math.random() < 0.5 ? 1 : -1;
+        for (var k = 0; k < 4; k++) {
+          out.push(sign * (5 + Math.random() * 25) * Math.PI / 180);
+          sign = -sign;   // 水平線の上と下に、交互に出す
+        }
+        return out;
+      }
       return {
-        above: above,
-        hy: above ? 0.55 + Math.random() * 0.15 : 0.3 + Math.random() * 0.15,  // 水平線の高さ
-        cx: 0.4 + Math.random() * 0.2,       // 手前のかどの横位置
-        gap: 0.07 + Math.random() * 0.12,    // 水平線から立方体までのきょり
-        h: 0.2 + Math.random() * 0.08,       // 立方体の高さ
-        wl: 0.12 + Math.random() * 0.08,     // 左の面のはば
-        wr: 0.12 + Math.random() * 0.08,     // 右の面のはば
-        dl: 0.9 + Math.random() * 0.9,       // 左の消失点までのきょり(画面はば比)
-        dr: 0.9 + Math.random() * 0.9        // 右の消失点までのきょり
+        hy: 0.35 + Math.random() * 0.3,        // 水平線の高さ
+        vl: -(0.4 + Math.random() * 0.9),      // 左の消失点の横位置(画面はば比。画面の外)
+        vr: 1.4 + Math.random() * 0.9,         // 右の消失点の横位置
+        left: angles(), right: angles()
       };
     }
     return null;
@@ -197,38 +219,6 @@
 
   function line(ctx, x1, y1, x2, y2) {
     ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
-  }
-
-  // 水平線の上か下に、立方体を1つ。消失点は画面には出さない(線の向きを決めるのにだけ使う)。
-  function drawCube(ctx, g) {
-    var m = Math.min(W, H), hy = g.hy * H, cx = g.cx * W;
-    var yt, yb;
-    if (g.above) { yb = hy - g.gap * m; yt = yb - g.h * m; }
-    else { yt = hy + g.gap * m; yb = yt + g.h * m; }
-    var vl = { x: cx - g.dl * W, y: hy }, vr = { x: cx + g.dr * W, y: hy };
-    var lx = cx - g.wl * m, rx = cx + g.wr * m;
-    // (px,py) から消失点 v へ向かう線の上で、x が nx のときの y
-    function toward(px, py, v, nx) { return py + ((nx - px) / (v.x - px)) * (v.y - py); }
-    function inter(p1, v1, p2, v2) {
-      var d1x = v1.x - p1.x, d1y = v1.y - p1.y, d2x = v2.x - p2.x, d2y = v2.y - p2.y;
-      var t = ((p2.x - p1.x) * d2y - (p2.y - p1.y) * d2x) / (d1x * d2y - d1y * d2x);
-      return { x: p1.x + t * d1x, y: p1.y + t * d1y };
-    }
-    var T = { x: cx, y: yt }, B = { x: cx, y: yb };
-    var LT = { x: lx, y: toward(cx, yt, vl, lx) }, LB = { x: lx, y: toward(cx, yb, vl, lx) };
-    var RT = { x: rx, y: toward(cx, yt, vr, rx) }, RB = { x: rx, y: toward(cx, yb, vr, rx) };
-    // 水平線より下なら上の面が、上なら下の面が見える
-    var near = g.above ? B : T, l = g.above ? LB : LT, r = g.above ? RB : RT;
-    var far = inter(l, vr, r, vl);
-
-    function poly(pts) {
-      ctx.beginPath(); ctx.moveTo(pts[0].x, pts[0].y);
-      for (var i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
-      ctx.closePath(); ctx.stroke();
-    }
-    poly([T, LT, LB, B]);
-    poly([T, RT, RB, B]);
-    poly([near, l, far, r]);
   }
 
   function drawGuide() {
@@ -248,18 +238,27 @@
 
     switch (current.guide) {
       case "dots":
-        if (!guideData) newGuideData();
+        // 古い形(点が9個以上など)で保存されていたら、作り直す
+        if (!Array.isArray(guideData) || guideData.length > 8) newGuideData();
         guideData.forEach(function (p) {
           gctx.beginPath(); gctx.arc(p.x * W, p.y * H, 5, 0, Math.PI * 2); gctx.fill();
         });
         break;
-      case "cube":
-        if (!guideData) newGuideData();
+      case "perspective": {
+        if (!guideData || !guideData.left) newGuideData();
+        var hy = guideData.hy * H, far = Math.max(W, H) * 4;
         gctx.strokeStyle = HORIZON_COLOR;
-        line(gctx, 0, guideData.hy * H, W, guideData.hy * H);   // 水平線
+        line(gctx, 0, hy, W, hy);   // 水平線
         gctx.strokeStyle = GUIDE_COLOR;
-        drawCube(gctx, guideData);
+        // 消失点(hy の高さ・画面の外)から、画面に向かって線を引く。はみ出した分は自動で切れる
+        guideData.left.forEach(function (t) {
+          line(gctx, guideData.vl * W, hy, guideData.vl * W + Math.cos(t) * far, hy + Math.sin(t) * far);
+        });
+        guideData.right.forEach(function (t) {
+          line(gctx, guideData.vr * W, hy, guideData.vr * W - Math.cos(t) * far, hy + Math.sin(t) * far);
+        });
         break;
+      }
       case "cross":
         // 十字線だけ(画面いっぱいに)
         gctx.strokeStyle = HORIZON_COLOR;
@@ -517,6 +516,16 @@
   }
 
   // ---------- 向きの選択(1・2番) ----------
+  // 向きを変えたら、キャンバスを白紙に戻す(同じ向きをもう一度押したときは何もしない)
+  function setDirection(i) {
+    if (i === direction) return;
+    direction = i;
+    strokes.length = 0;
+    redrawStrokes();
+    scheduleSave();
+    renderDirbar();
+    updateDemo();
+  }
   function renderDirbar() {
     var bar = $("dirbar");
     bar.textContent = "";
@@ -526,12 +535,12 @@
     DIRECTIONS.forEach(function (d, i) {
       var b = h("button", "btn" + (i === direction ? " on" : ""), d.arrow + " " + d.label);
       b.type = "button";
-      b.addEventListener("click", function () { direction = i; renderDirbar(); updateDemo(); });
+      b.addEventListener("click", function () { setDirection(i); });
       bar.appendChild(b);
     });
     var next = h("button", "btn", "次の向きへ");
     next.type = "button";
-    next.addEventListener("click", function () { direction = (direction + 1) % DIRECTIONS.length; renderDirbar(); updateDemo(); });
+    next.addEventListener("click", function () { setDirection((direction + 1) % DIRECTIONS.length); });
     bar.appendChild(next);
   }
 
@@ -597,9 +606,9 @@
     }
     $("pointToggle").hidden = false;
     $("prev").disabled = stageIndex() === 0;
-    var reroll = current && (current.guide === "dots" || current.guide === "cube");
+    var reroll = current && (current.guide === "dots" || current.guide === "perspective");
     $("redots").hidden = !reroll;
-    if (reroll) $("redots").textContent = current.guide === "cube" ? "立方体を変える" : "点を打ち直す";
+    if (reroll) $("redots").textContent = current.guide === "perspective" ? "パースの線を変える" : "点を打ち直す";
     $("guideBtn").hidden = !(current && current.guide);
     renderDirbar();
     updateDemo();

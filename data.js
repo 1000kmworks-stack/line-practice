@@ -29,7 +29,7 @@ var DIRECTIONS = [
 //   times: 1日にやる回数(省略すると1回)
 //   directions: true なら向きの選択ボタンを出す
 //   guide: 画面に薄く出すお手本の種類
-//     dots(点・毎回ランダム) / cube(水平線+立方体1つ・毎回ランダム) / cross(十字線だけ)
+//     dots(点・毎回ランダム) / perspective(水平線+パースの線・毎回ランダム) / cross(十字線だけ)
 //     circleCross(円と十字線) / circleCross8(円と十字線+斜め線2本)
 //   link: 外部サイトへのリンク { url, label }
 var PRACTICES = [
@@ -52,10 +52,10 @@ var PRACTICES = [
     point: "1つの点から、周りに打った点へ向かって放射状に線を引く。始めの点を変えて、何回もくり返す。「ここからここまで」とねらった場所に線を引く練習なので、点からはみ出さず、ぴったり止められるようにする。"
   },
   {
-    no: 4, group: "perspective", guide: "cube",
+    no: 4, group: "perspective", guide: "perspective",
     en: "Perspective block practice: Draw a block and then plot dots to find the center line",
     title: "奥行きのある箱を描いて、点を打って真ん中の線を見つける",
-    point: "奥にいくほど小さくなる箱を描く。面の真ん中は、角から角へ×を引くと見つかるよ(奥行きがあると、見た目の真ん中とずれる)。"
+    point: "水平線とパースの線(消失点は画面の外。向かう先を意識して)にそって、奥にいくほど小さくなる箱を描く。面の真ん中は、角から角へ×を引くと見つかるよ(奥行きがあると、見た目の真ん中とずれる)。"
   },
   {
     no: 5, group: "circle", guide: "cross",

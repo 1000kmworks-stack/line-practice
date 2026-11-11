@@ -116,20 +116,11 @@ var DEMO_W = 200, DEMO_H = 130;
     2: function (o) { return parallel(o.direction, true); },
     // 3: 1つの点から、まわりの点へ放射状に
     3: function () {
-      var c = [100, 65], pts = [[28, 24], [172, 30], [36, 106], [168, 104], [100, 12], [100, 118], [24, 66], [178, 68]];
+      var c = [100, 65], pts = [[30, 22], [170, 28], [34, 108], [172, 100], [96, 12], [118, 120], [22, 62]];   // 点は全部で8個。一直線に並ばない
       return {
         dots: [c].concat(pts),
         strokes: pts.map(function (p) { return { pts: seg(c[0], c[1], p[0], p[1], 20) }; })
       };
-    },
-    // 4: 水平線の下に立方体を描き、面の真ん中を×で見つける
-    4: function () {
-      var T = [100, 62], B = [100, 106], LT = [52, 56], LB = [52, 99], RT = [150, 57], RB = [150, 100], F = [90, 54.5];
-      var e = [[T, B], [T, LT], [LT, LB], [LB, B], [T, RT], [RT, RB], [RB, B], [LT, F], [F, RT]];
-      var strokes = e.map(function (s) { return { pts: seg(s[0][0], s[0][1], s[1][0], s[1][1], 12) }; });
-      strokes.push({ pts: seg(LT[0], LT[1], B[0], B[1], 16), color: RED });
-      strokes.push({ pts: seg(T[0], T[1], LB[0], LB[1], 16), color: RED });
-      return { fixed: [{ pts: seg(0, 38, 200, 38, 2) }], strokes: strokes };
     },
     // 5: うずまき。時計回りで小さく、反時計回りで外へ
     5: function () {
